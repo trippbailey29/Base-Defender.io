@@ -103,11 +103,14 @@
 <div id="startScreen">
   <h1>Choose Your Tank</h1>
   <div>
-    <div class="tankOption" id="tankBlue" style="background:#3b82f6;"></div>
-    <div class="tankOption" id="tankRed" style="background:#ef4444;"></div>
-    <div class="tankOption" id="tankGreen" style="background:#22c55e;"></div>
+    <div class="tankOption" id="tankBlue" style="background:#3b82f6;">1</div>
+    <div class="tankOption" id="tankRed" style="background:#ef4444;">2</div>
+    <div class="tankOption" id="tankGreen" style="background:#22c55e;">3</div>
   </div>
   <button id="playBtn" disabled>Play</button>
+  <p style="margin-top:12px; font-size:14px; color:#ccc;">
+    (Press 1, 2 or 3 to select color)
+  </p>
 </div>
 
 <div id="gameOverScreen">
@@ -166,15 +169,29 @@
   let baseLevel = 1;
   let lastEnemySpawn = 0;
   let enemySpawnInterval = 2000; // ms
+  let mouse = {x: 0, y: 0, down: false};
 
   // Tank color selection
+  function selectTankColor(color) {
+    tankOptions.forEach(o => o.classList.remove('selected'));
+    const opt = Array.from(tankOptions).find(o => o.style.backgroundColor === color);
+    if (opt) opt.classList.add('selected');
+    tankColor = color;
+    playBtn.disabled = false;
+  }
+
   tankOptions.forEach(opt => {
     opt.addEventListener('click', () => {
-      tankOptions.forEach(o => o.classList.remove('selected'));
-      opt.classList.add('selected');
-      tankColor = opt.style.backgroundColor;
-      playBtn.disabled = false;
+      selectTankColor(opt.style.backgroundColor);
     });
+  });
+
+  // Keyboard selection for tank colors
+  window.addEventListener('keydown', e => {
+    if (gameRunning) return; // ignore if game started
+    if (e.key === '1') selectTankColor('rgb(59, 130, 246)'); // #3b82f6 Blue
+    else if (e.key === '2') selectTankColor('rgb(239, 68, 68)'); // #ef4444 Red
+    else if (e.key === '3') selectTankColor('rgb(34, 197, 94)'); // #22c55e Green
   });
 
   // Player class
@@ -190,22 +207,18 @@
       this.lastShot = 0;
     }
     update(deltaTime) {
-      // Movement
       if (keys['ArrowUp'] || keys['w']) this.y -= this.speed;
       if (keys['ArrowDown'] || keys['s']) this.y += this.speed;
       if (keys['ArrowLeft'] || keys['a']) this.x -= this.speed;
       if (keys['ArrowRight'] || keys['d']) this.x += this.speed;
 
-      // Clamp inside canvas
       this.x = Math.min(Math.max(this.size / 2, this.x), canvas.width - this.size / 2);
       this.y = Math.min(Math.max(this.size / 2, this.y), canvas.height - this.size / 2);
 
-      // Update angle towards mouse
       let dx = mouse.x - this.x;
       let dy = mouse.y - this.y;
       this.angle = Math.atan2(dy, dx);
 
-      // Shooting
       if (mouse.down && (Date.now() - this.lastShot > this.reloadTime)) {
         bullets.push(new Bullet(this.x, this.y, this.angle));
         this.lastShot = Date.now();
@@ -215,10 +228,8 @@
       ctx.save();
       ctx.translate(this.x, this.y);
       ctx.rotate(this.angle);
-      // Draw tank body
       ctx.fillStyle = this.color;
       ctx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
-      // Draw turret
       ctx.fillStyle = '#222';
       ctx.fillRect(0, -5, this.size, 10);
       ctx.restore();
@@ -236,7 +247,7 @@
       this.level = 1;
       this.upgradeCost = 10;
       this.attackCooldown = 0;
-      this.attackRate = 1000; // ms between attacks
+      this.attackRate = 1000;
       this.attackRange = 250;
       this.attackDamage = 15;
     }
@@ -257,10 +268,10 @@
         this.attackCooldown -= deltaTime;
         if (this.attackCooldown <= 0) {
           this.attackCooldown = this.attackRate;
-          // Find nearest enemy in range
           let target = null;
           let minDist = this.attackRange;
           for (const e of enemies) {
+            if (!e.alive) continue;
             let dist = distance(this.x, this.y, e.x, e.y);
             if (dist < minDist) {
               minDist = dist;
@@ -268,14 +279,12 @@
             }
           }
           if (target) {
-            // Shoot bullet at enemy (instant damage)
             target.takeDamage(this.attackDamage);
           }
         }
       }
     }
     draw() {
-      // Base circle
       ctx.beginPath();
       ctx.fillStyle = '#555';
       ctx.shadowColor = 'rgba(255,255,255,0.3)';
@@ -284,79 +293,5 @@
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // HP bar background
       ctx.fillStyle = '#222';
-      ctx.fillRect(this.x - this.radius, this.y + this.radius + 10, this.radius * 2, 10);
-
-      // HP bar
-      ctx.fillStyle = '#22cc44';
-      ctx.fillRect(this.x - this.radius, this.y + this.radius + 10, (this.hp / this.maxHP) * this.radius * 2, 10);
-
-      // Draw base level as text
-      ctx.fillStyle = 'white';
-      ctx.font = '16px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(`Base Lv.${this.level}`, this.x, this.y - this.radius - 10);
-    }
-  }
-
-  // Enemy class
-  class Enemy {
-    constructor(x, y) {
-      this.x = x;
-      this.y = y;
-      this.size = ENEMY_SIZE;
-      this.speed = 1 + Math.random() * 0.7;
-      this.hp = 30 + base.level * 10;
-      this.color = '#ee4444';
-      this.alive = true;
-    }
-    update(deltaTime) {
-      // Move towards base
-      const dx = base.x - this.x;
-      const dy = base.y - this.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist > base.radius + this.size / 2) {
-        this.x += (dx / dist) * this.speed;
-        this.y += (dy / dist) * this.speed;
-      } else {
-        // Damage base
-        if (this.alive) {
-          base.hp -= 0.2;
-          if (base.hp < 0) base.hp = 0;
-        }
-      }
-    }
-    takeDamage(dmg) {
-      this.hp -= dmg;
-      if (this.hp <= 0) {
-        this.alive = false;
-        score += 1;
-        updateUI();
-      }
-    }
-    draw() {
-      if (!this.alive) return;
-      ctx.fillStyle = this.color;
-      ctx.beginPath();
-      ctx.rect(this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
-      ctx.fill();
-
-      // HP bar
-      ctx.fillStyle = '#ff6666';
-      ctx.fillRect(this.x - this.size / 2, this.y - this.size / 2 - 8, this.size * (this.hp / (30 + base.level * 10)), 4);
-    }
-  }
-
-  // Bullet class
-  class Bullet {
-    constructor(x, y, angle) {
-      this.x = x;
-      this.y = y;
-      this.size = BULLET_SIZE;
-      this.speed = 8;
-      this.angle = angle;
-      this.dx = Math.cos(angle) * this.speed;
-      this.dy = Math.sin(angle) * this.speed;
-      this.damage = 20;
-      this.alive =
+      ctx.fillRect(this.x - this.radius, this.y + this.radius + 10, this.radius * 2, 10
