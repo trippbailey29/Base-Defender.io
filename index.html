@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Base Defender.io</title>
+<style>
+  * {
+    margin: 0; padding: 0; box-sizing: border-box;
+  }
+  body, html {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #222;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    user-select: none;
+  }
+  canvas {
+    display: block;
+    background: #111;
+    margin: 0 auto;
+  }
+  #ui {
+    position: absolute;
+    top: 20px; left: 50%; transform: translateX(-50%);
+    color: white;
+    text-align: center;
+  }
+  #startScreen {
+    position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: #222;
+    border: 2px solid #555;
+    padding: 20px 30px;
+    border-radius: 10px;
+  }
+  #startScreen h1 {
+    margin-bottom: 15px;
+    font-weight: 700;
+  }
+  .tankOption {
+    display: inline-block;
+    width: 60px; height: 60px;
+    margin: 0 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 3px solid transparent;
+    transition: border-color 0.3s;
+  }
+  .tankOption.selected {
+    border-color: white;
+  }
+  #playBtn {
+    margin-top: 20px;
+    background: #333;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    font-size: 1.1em;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.3s;
+  }
+  #playBtn:hover:not(:disabled) {
+    background: #555;
+  }
+  #playBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  #gameOverScreen {
+    position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: #222;
+    border: 2px solid #555;
+    padding: 30px 40px;
+    border-radius: 10px;
+    color: white;
+    display: none;
+    text-align: center;
+  }
+  #upgradeBtn {
+    margin-top: 15px;
+    background: #227722;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    cursor: pointer;
+    border-radius: 6px;
+    font-weight: 600;
+    transition: background 0.3s;
+  }
+  #upgradeBtn:hover:not(:disabled) {
+    background: #44aa44;
+  }
+  #upgradeBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+</style>
+</head>
+<body>
+
+<div id="startScreen">
+  <h1>Choose Your Tank</h1>
+  <div>
+    <div class="tankOption" id="tankBlue" style="background:#3b82f6;"></div>
+    <div class="tankOption" id="tankRed" style="background:#ef4444;"></div>
+    <div class="tankOption" id="tankGreen" style="background:#22c55e;"></div>
+  </div>
+  <button id="playBtn" disabled>Play</button>
+</div>
+
+<div id="gameOverScreen">
+  <h1>Game Over</h1>
+  <p id="finalScore"></p>
+  <button id="restartBtn">Restart</button>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="ui" style="display:none;">
+  <div>Base HP: <span id="baseHP">100</span></div>
+  <div>Score: <span id="score">0</span></div>
+  <button id="upgradeBtn">Upgrade Base (Cost: 10 Score)</button>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const startScreen = document.getElementById('startScreen');
+  const playBtn = document.getElementById('playBtn');
+  const tankOptions = document.querySelectorAll('.tankOption');
+  const gameOverScreen = document.getElementById('gameOverScreen');
+  const finalScore = document.getElementById('finalScore');
+  const restartBtn = document.getElementById('restartBtn');
+  const ui = document.getElementById('ui');
+  const baseHPSpan = document.getElementById('baseHP');
+  const scoreSpan = document.getElementById('score');
+  const upgradeBtn = document.getElementById('upgradeBtn');
+
+  // Resize canvas full window
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Game constants
+  const BASE_RADIUS = 60;
+  const PLAYER_SIZE = 20;
+  const ENEMY_SIZE = 18;
+  const BULLET_SIZE = 6;
+  const BASE_MAX_LEVEL = 5;
+
+  // Game variables
+  let gameRunning = false;
+  let tankColor = null;
+  let player = null;
+  let base = null;
+  let enemies = [];
+  let bullets = [];
+  let keys = {};
+  let score = 0;
+  let baseLevel = 1;
+  let lastEnemySpawn = 0;
+  let enemySpawnInterval = 2000; // ms
+
+  // Tank color selection
+  tankOptions.forEach(opt => {
+    opt.addEventListener('click', () => {
+      tankOptions.forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      tankColor = opt.style.backgroundColor;
+      playBtn.disabled = false;
+    });
+  });
+
+  // Player class
+  class Player {
+    constructor(x, y, color) {
+      this.x = x;
+      this.y = y;
+      this.size = PLAYER_SIZE;
+      this.color = color;
+      this.speed = 4;
+      this.angle = 0;
+      this.reloadTime = 300;
+      this.lastShot = 0;
+    }
+    update(deltaTime) {
+      // Movement
+      if (keys['ArrowUp'] || keys['w']) this.y -= this.speed;
+      if (keys['ArrowDown'] || keys['s']) this.y += this.speed;
+      if (keys['ArrowLeft'] || keys['a']) this.x -= this.speed;
+      if (keys['ArrowRight'] || keys['d']) this.x += this.speed;
+
+      // Clamp inside canvas
+      this.x = Math.min(Math.max(this.size / 2, this.x), canvas.width - this.size / 2);
+      this.y = Math.min(Math.max(this.size / 2, this.y), canvas.height - this.size / 2);
+
+      // Update angle towards mouse
+      let dx = mouse.x - this.x;
+      let dy = mouse.y - this.y;
+      this.angle = Math.atan2(dy, dx);
+
+      // Shooting
+      if (mouse.down && (Date.now() - this.lastShot > this.reloadTime)) {
+        bullets.push(new Bullet(this.x, this.y, this.angle));
+        this.lastShot = Date.now();
+      }
+    }
+    draw() {
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.angle);
+      // Draw tank body
+      ctx.fillStyle = this.color;
+      ctx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
+      // Draw turret
+      ctx.fillStyle = '#222';
+      ctx.fillRect(0, -5, this.size, 10);
+      ctx.restore();
+    }
+  }
+
+  // Base class
+  class Base {
+    constructor(x, y) {
+      this.x = x;
+      this.y = y;
+      this.radius = BASE_RADIUS;
+      this.maxHP = 100;
+      this.hp = this.maxHP;
+      this.level = 1;
+      this.upgradeCost = 10;
+      this.attackCooldown = 0;
+      this.attackRate = 1000; // ms between attacks
+      this.attackRange = 250;
+      this.attackDamage = 15;
+    }
+    upgrade() {
+      if (score >= this.upgradeCost && this.level < BASE_MAX_LEVEL) {
+        score -= this.upgradeCost;
+        this.level++;
+        this.maxHP += 50;
+        this.hp = this.maxHP;
+        this.attackRate = Math.max(200, this.attackRate - 150);
+        this.attackDamage += 10;
+        this.upgradeCost += 10;
+        updateUI();
+      }
+    }
+    update(deltaTime) {
+      if (this.level > 1) {
+        this.attackCooldown -= deltaTime;
+        if (this.attackCooldown <= 0) {
+          this.attackCooldown = this.attackRate;
+          // Find nearest enemy in range
+          let target = null;
+          let minDist = this.attackRange;
+          for (const e of enemies) {
+            let dist = distance(this.x, this.y, e.x, e.y);
+            if (dist < minDist) {
+              minDist = dist;
+              target = e;
+            }
+          }
+          if (target) {
+            // Shoot bullet at enemy (instant damage)
+            target.takeDamage(this.attackDamage);
+          }
+        }
+      }
+    }
+    draw() {
+      // Base circle
+      ctx.beginPath();
+      ctx.fillStyle = '#555';
+      ctx.shadowColor = 'rgba(255,255,255,0.3)';
+      ctx.shadowBlur = 10;
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // HP bar background
+      ctx.fillStyle = '#222';
+      ctx.fillRect(this.x - this.radius, this.y + this.radius + 10, this.radius * 2, 10);
+
+      // HP bar
+      ctx.fillStyle = '#22cc44';
+      ctx.fillRect(this.x - this.radius, this.y + this.radius + 10, (this.hp / this.maxHP) * this.radius * 2, 10);
+
+      // Draw base level as text
+      ctx.fillStyle = 'white';
+      ctx.font = '16px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Base Lv.${this.level}`, this.x, this.y - this.radius - 10);
+    }
+  }
+
+  // Enemy class
+  class Enemy {
+    constructor(x, y) {
+      this.x = x;
+      this.y = y;
+      this.size = ENEMY_SIZE;
+      this.speed = 1 + Math.random() * 0.7;
+      this.hp = 30 + base.level * 10;
+      this.color = '#ee4444';
+      this.alive = true;
+    }
+    update(deltaTime) {
+      // Move towards base
+      const dx = base.x - this.x;
+      const dy = base.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > base.radius + this.size / 2) {
+        this.x += (dx / dist) * this.speed;
+        this.y += (dy / dist) * this.speed;
+      } else {
+        // Damage base
+        if (this.alive) {
+          base.hp -= 0.2;
+          if (base.hp < 0) base.hp = 0;
+        }
+      }
+    }
+    takeDamage(dmg) {
+      this.hp -= dmg;
+      if (this.hp <= 0) {
+        this.alive = false;
+        score += 1;
+        updateUI();
+      }
+    }
+    draw() {
+      if (!this.alive) return;
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.rect(this.x - this.size / 2, this.y - this.size / 2, this.size, this.size);
+      ctx.fill();
+
+      // HP bar
+      ctx.fillStyle = '#ff6666';
+      ctx.fillRect(this.x - this.size / 2, this.y - this.size / 2 - 8, this.size * (this.hp / (30 + base.level * 10)), 4);
+    }
+  }
+
+  // Bullet class
+  class Bullet {
+    constructor(x, y, angle) {
+      this.x = x;
+      this.y = y;
+      this.size = BULLET_SIZE;
+      this.speed = 8;
+      this.angle = angle;
+      this.dx = Math.cos(angle) * this.speed;
+      this.dy = Math.sin(angle) * this.speed;
+      this.damage = 20;
+      this.alive =
