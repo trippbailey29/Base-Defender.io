@@ -1,295 +1,243 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Tank Defense Game</title>
+  <meta charset="UTF-8">
+  <title>Tank Defense .IO</title>
   <style>
-    body, html {
+    body {
       margin: 0;
-      padding: 0;
+      background: #1a1a1a;
       overflow: hidden;
-      background: #222;
+      font-family: Arial, sans-serif;
     }
     canvas {
       display: block;
-      margin: 0 auto;
-      background: #111;
-      border: 2px solid #555;
+      margin: auto;
+      background: #202020;
     }
-    #startScreen, #gameOverScreen {
+    #ui, #start, #gameOver {
       position: absolute;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      background: #333;
-      padding: 20px;
-      border-radius: 10px;
       text-align: center;
       color: white;
-      font-family: sans-serif;
+    }
+    #ui {
+      top: 10px;
+      left: 10px;
+      transform: none;
+      background: rgba(0,0,0,0.5);
+      padding: 10px 15px;
+      border-radius: 8px;
     }
     button {
       padding: 10px 20px;
-      font-size: 16px;
-      cursor: pointer;
+      background: #3b82f6;
+      color: white;
+      font-size: 18px;
       border: none;
       border-radius: 5px;
+      cursor: pointer;
       margin-top: 10px;
-    }
-    #ui {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.6);
-      padding: 10px;
-      border-radius: 8px;
-      color: white;
-      font-family: sans-serif;
     }
   </style>
 </head>
 <body>
 
-<div id="startScreen">
-  <h2>Tank Defense Game</h2>
-  <button id="playBtn">Play</button>
+<div id="start">
+  <h1>Tank Defense .IO</h1>
+  <button onclick="startGame()">Play</button>
 </div>
 
-<div id="gameOverScreen" style="display:none;">
+<div id="gameOver" style="display:none;">
   <h2>Game Over</h2>
-  <p id="finalScore">Score: 0</p>
-  <button id="restartBtn">Restart</button>
+  <p id="finalScore"></p>
+  <button onclick="startGame()">Restart</button>
 </div>
 
 <div id="ui" style="display:none;">
-  <div>Base HP: <span id="baseHP">100</span></div>
-  <div>Score: <span id="score">0</span></div>
+  <p>Base HP: <span id="baseHp">100</span></p>
+  <p>Score: <span id="score">0</span></p>
 </div>
 
 <canvas id="gameCanvas" width="800" height="600"></canvas>
 
 <script>
-  const canvas = document.getElementById("gameCanvas");
-  const ctx = canvas.getContext("2d");
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+let keys = {};
+let bullets = [], enemies = [];
+let player, base;
+let score = 0;
+let mouse = { x: 0, y: 0, down: false };
+let gameRunning = false;
 
-  const startScreen = document.getElementById("startScreen");
-  const gameOverScreen = document.getElementById("gameOverScreen");
-  const finalScore = document.getElementById("finalScore");
-  const restartBtn = document.getElementById("restartBtn");
-  const playBtn = document.getElementById("playBtn");
-  const baseHPSpan = document.getElementById("baseHP");
-  const scoreSpan = document.getElementById("score");
-  const ui = document.getElementById("ui");
+document.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+document.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+canvas.addEventListener("mousemove", e => {
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = e.clientX - rect.left;
+  mouse.y = e.clientY - rect.top;
+});
+canvas.addEventListener("mousedown", () => mouse.down = true);
+canvas.addEventListener("mouseup", () => mouse.down = false);
 
-  let player, base, bullets = [], enemies = [], keys = {};
-  let score = 0, gameRunning = false;
-  const defaultTankColor = "#3b82f6";
+canvas.addEventListener("touchstart", e => {
+  mouse.down = true;
+  const touch = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = touch.clientX - rect.left;
+  mouse.y = touch.clientY - rect.top;
+});
+canvas.addEventListener("touchmove", e => {
+  const touch = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = touch.clientX - rect.left;
+  mouse.y = touch.clientY - rect.top;
+});
+canvas.addEventListener("touchend", () => mouse.down = false);
 
-  class Base {
-    constructor(x, y) {
-      this.x = x;
-      this.y = y;
-      this.hp = 100;
-      this.radius = 50;
-    }
-    draw() {
-      ctx.fillStyle = "#555";
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-      ctx.fill();
+function startGame() {
+  document.getElementById("start").style.display = "none";
+  document.getElementById("gameOver").style.display = "none";
+  document.getElementById("ui").style.display = "block";
 
-      // HP bar
-      ctx.fillStyle = "red";
-      ctx.fillRect(this.x - 50, this.y + 60, 100 * (this.hp / 100), 10);
-      ctx.strokeStyle = "black";
-      ctx.strokeRect(this.x - 50, this.y + 60, 100, 10);
-    }
+  player = {
+    x: 400,
+    y: 300,
+    size: 30,
+    angle: 0,
+    color: "#3b82f6",
+    speed: 4,
+    lastShot: 0
+  };
+  base = { x: 400, y: 300, hp: 100, radius: 50 };
+  bullets = [];
+  enemies = [];
+  score = 0;
+  gameRunning = true;
+  loop();
+}
+
+function shoot() {
+  const now = Date.now();
+  if (now - player.lastShot > 300) {
+    bullets.push({
+      x: player.x,
+      y: player.y,
+      angle: player.angle,
+      speed: 8,
+      radius: 5,
+      alive: true
+    });
+    player.lastShot = now;
   }
+}
 
-  class Player {
-    constructor(x, y, color) {
-      this.x = x;
-      this.y = y;
-      this.color = color;
-      this.size = 30;
-      this.angle = 0;
-      this.speed = 4;
-      this.lastShot = 0;
-    }
-    update() {
-      if (keys["w"]) this.y -= this.speed;
-      if (keys["s"]) this.y += this.speed;
-      if (keys["a"]) this.x -= this.speed;
-      if (keys["d"]) this.x += this.speed;
+function spawnEnemy() {
+  const edge = Math.floor(Math.random() * 4);
+  let x, y;
+  if (edge === 0) { x = Math.random() * canvas.width; y = -20; }
+  else if (edge === 1) { x = canvas.width + 20; y = Math.random() * canvas.height; }
+  else if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + 20; }
+  else { x = -20; y = Math.random() * canvas.height; }
+  enemies.push({ x, y, hp: 20, speed: 1.2, alive: true });
+}
 
-      this.x = Math.max(15, Math.min(canvas.width - 15, this.x));
-      this.y = Math.max(15, Math.min(canvas.height - 15, this.y));
+function loop() {
+  if (!gameRunning) return;
 
-      this.angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      if (mouse.down && Date.now() - this.lastShot > 400) {
-        bullets.push(new Bullet(this.x, this.y, this.angle));
-        this.lastShot = Date.now();
-      }
-    }
-    draw() {
-      ctx.save();
-      ctx.translate(this.x, this.y);
-      ctx.rotate(this.angle);
-      ctx.fillStyle = this.color;
-      ctx.fillRect(-15, -15, 30, 30);
-      ctx.fillStyle = "black";
-      ctx.fillRect(0, -5, 30, 10);
-      ctx.restore();
-    }
-  }
+  // Update
+  if (keys["w"]) player.y -= player.speed;
+  if (keys["s"]) player.y += player.speed;
+  if (keys["a"]) player.x -= player.speed;
+  if (keys["d"]) player.x += player.speed;
 
-  class Bullet {
-    constructor(x, y, angle) {
-      this.x = x;
-      this.y = y;
-      this.angle = angle;
-      this.speed = 10;
-      this.radius = 5;
-      this.alive = true;
-    }
-    update() {
-      this.x += Math.cos(this.angle) * this.speed;
-      this.y += Math.sin(this.angle) * this.speed;
+  player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+  if (mouse.down) shoot();
 
-      if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
-        this.alive = false;
-      }
+  // Bullets
+  bullets.forEach(b => {
+    b.x += Math.cos(b.angle) * b.speed;
+    b.y += Math.sin(b.angle) * b.speed;
+    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) b.alive = false;
 
-      enemies.forEach(enemy => {
-        if (!enemy.alive) return;
-        if (Math.hypot(this.x - enemy.x, this.y - enemy.y) < 20) {
-          enemy.hp -= 15;
-          this.alive = false;
-          if (enemy.hp <= 0) {
-            enemy.alive = false;
-            score++;
-            updateUI();
-          }
+    enemies.forEach(e => {
+      if (e.alive && Math.hypot(b.x - e.x, b.y - e.y) < 20) {
+        e.hp -= 10;
+        b.alive = false;
+        if (e.hp <= 0) {
+          e.alive = false;
+          score++;
         }
-      });
-    }
-    draw() {
-      ctx.fillStyle = "yellow";
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
+      }
+    });
+  });
+  bullets = bullets.filter(b => b.alive);
 
-  class Enemy {
-    constructor(x, y) {
-      this.x = x;
-      this.y = y;
-      this.speed = 1.5;
-      this.hp = 30;
-      this.alive = true;
-    }
-    update() {
-      const angle = Math.atan2(base.y - this.y, base.x - this.x);
-      this.x += Math.cos(angle) * this.speed;
-      this.y += Math.sin(angle) * this.speed;
+  // Enemies
+  enemies.forEach(e => {
+    const angle = Math.atan2(base.y - e.y, base.x - e.x);
+    e.x += Math.cos(angle) * e.speed;
+    e.y += Math.sin(angle) * e.speed;
 
-      if (Math.hypot(this.x - base.x, this.y - base.y) < base.radius) {
-        base.hp -= 0.3;
-        if (base.hp < 0) base.hp = 0;
+    if (Math.hypot(e.x - base.x, e.y - base.y) < base.radius) {
+      base.hp -= 0.2;
+      if (base.hp <= 0) {
+        base.hp = 0;
+        endGame();
       }
     }
-    draw() {
-      ctx.fillStyle = "orange";
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, 15, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  function updateUI() {
-    baseHPSpan.textContent = Math.floor(base.hp);
-    scoreSpan.textContent = score;
-  }
-
-  function spawnEnemy() {
-    const edge = Math.floor(Math.random() * 4);
-    let x, y;
-    switch (edge) {
-      case 0: x = Math.random() * canvas.width; y = -20; break;
-      case 1: x = canvas.width + 20; y = Math.random() * canvas.height; break;
-      case 2: x = Math.random() * canvas.width; y = canvas.height + 20; break;
-      case 3: x = -20; y = Math.random() * canvas.height; break;
-    }
-    enemies.push(new Enemy(x, y));
-  }
-
-  let mouse = { x: 0, y: 0, down: false };
-  canvas.addEventListener("mousemove", e => {
-    const rect = canvas.getBoundingClientRect();
-    mouse.x = e.clientX - rect.left;
-    mouse.y = e.clientY - rect.top;
   });
-  canvas.addEventListener("mousedown", () => mouse.down = true);
-  canvas.addEventListener("mouseup", () => mouse.down = false);
+  enemies = enemies.filter(e => e.alive);
 
-  window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
-  window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+  // Drawing
+  ctx.fillStyle = "#666";
+  ctx.beginPath();
+  ctx.arc(base.x, base.y, base.radius, 0, Math.PI * 2);
+  ctx.fill();
 
-  function resetGame() {
-    base = new Base(canvas.width / 2, canvas.height / 2);
-    player = new Player(canvas.width / 2, canvas.height / 2, defaultTankColor);
-    bullets = [];
-    enemies = [];
-    score = 0;
-    updateUI();
-  }
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  ctx.rotate(player.angle);
+  ctx.fillStyle = player.color;
+  ctx.fillRect(-15, -15, 30, 30);
+  ctx.fillStyle = "black";
+  ctx.fillRect(0, -5, 30, 10);
+  ctx.restore();
 
-  function gameOver() {
-    gameRunning = false;
-    ui.style.display = "none";
-    gameOverScreen.style.display = "block";
-    finalScore.textContent = `Score: ${score}`;
-  }
-
-  function gameLoop() {
-    if (!gameRunning) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (Math.random() < 0.02) spawnEnemy();
-
-    player.update();
-    bullets.forEach(b => b.update());
-    enemies.forEach(e => e.update());
-
-    bullets = bullets.filter(b => b.alive);
-    enemies = enemies.filter(e => e.alive);
-
-    base.draw();
-    player.draw();
-    bullets.forEach(b => b.draw());
-    enemies.forEach(e => e.draw());
-
-    updateUI();
-
-    if (base.hp <= 0) return gameOver();
-
-    requestAnimationFrame(gameLoop);
-  }
-
-  playBtn.addEventListener("click", () => {
-    startScreen.style.display = "none";
-    ui.style.display = "block";
-    resetGame();
-    gameRunning = true;
-    requestAnimationFrame(gameLoop);
+  ctx.fillStyle = "yellow";
+  bullets.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+    ctx.fill();
   });
 
-  restartBtn.addEventListener("click", () => {
-    gameOverScreen.style.display = "none";
-    startScreen.style.display = "block";
+  ctx.fillStyle = "orange";
+  enemies.forEach(e => {
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 15, 0, Math.PI * 2);
+    ctx.fill();
   });
+
+  document.getElementById("baseHp").textContent = Math.floor(base.hp);
+  document.getElementById("score").textContent = score;
+
+  // Enemy spawn
+  if (Math.random() < 0.02) spawnEnemy();
+
+  requestAnimationFrame(loop);
+}
+
+function endGame() {
+  gameRunning = false;
+  document.getElementById("ui").style.display = "none";
+  document.getElementById("gameOver").style.display = "block";
+  document.getElementById("finalScore").textContent = `Score: ${score}`;
+}
 </script>
 
 </body>
